@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCloseEvent>
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusInterface>
@@ -16,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
@@ -23,6 +25,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QTabletEvent>
+#include <QSystemTrayIcon>
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <QXmlStreamReader>
@@ -64,6 +67,7 @@ class Window : public QWidget {
     QString path;
     Shortcuts *shortcutDialog = nullptr;
     bool appliedSoft = false;
+    bool minimizeToTray = false;
     QVariant get(const QString &key, QString *error = nullptr) const {
         QDBusInterface d(service, path, props, QDBusConnection::sessionBus());
         QDBusReply<QDBusVariant> r = d.call(QStringLiteral("Get"), iface, key);
@@ -419,7 +423,20 @@ class Window : public QWidget {
         status->setText(QStringLiteral("已应用并重新读取 KWin 设置。"));
     }
 
+protected:
+    void closeEvent(QCloseEvent *event) override {
+        if (minimizeToTray && QSystemTrayIcon::isSystemTrayAvailable()) {
+            hide();
+            event->ignore();
+            return;
+        }
+        QWidget::closeEvent(event);
+    }
+
 public:
+    void setMinimizeToTray(bool enabled) {
+        minimizeToTray = enabled;
+    }
     int diagnoseVirtual() {
         return syncVirtual() ? 0 : 1;
     }
@@ -528,6 +545,26 @@ int main(int argc, char **argv) {
         return window.diagnose();
     if (app.arguments().contains(QStringLiteral("--sync-virtual")))
         return window.diagnoseVirtual();
+    QSystemTrayIcon tray(app.windowIcon());
+    QMenu trayMenu;
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        auto showWindow = [&window] {
+            window.showNormal();
+            window.raise();
+            window.activateWindow();
+        };
+        trayMenu.addAction(QStringLiteral("显示主窗口"), &window, showWindow);
+        trayMenu.addAction(QStringLiteral("退出"), &app, &QApplication::quit);
+        tray.setContextMenu(&trayMenu);
+        tray.setToolTip(QStringLiteral("高漫数位板管理面板"));
+        QObject::connect(&tray, &QSystemTrayIcon::activated, &window,
+                         [showWindow](QSystemTrayIcon::ActivationReason reason) {
+            if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
+                showWindow();
+        });
+        tray.show();
+        window.setMinimizeToTray(true);
+    }
     window.show();
     return app.exec();
 }
