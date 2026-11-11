@@ -1,0 +1,7 @@
+FROM archlinux:base
+
+# Refresh the rolling distribution's packages weekly, even when this file is unchanged.
+ARG PACKAGE_WEEK
+RUN pacman -Syu --noconfirm --needed base-devel ccache cmake qt6-base qt6-wayland libevdev polkit dbus \
+    && useradd -m builder \
+    && pacman -Scc --noconfirm
