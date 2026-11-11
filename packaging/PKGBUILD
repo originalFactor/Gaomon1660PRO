@@ -1,0 +1,40 @@
+pkgname=gaomon-manage-panel
+pkgver=${GAOMON_PKGVER:-0.1.0}
+pkgrel=1
+pkgdesc='GAOMON 1060PRO configuration panel for KDE Plasma Wayland'
+arch=('x86_64')
+url='https://github.com/originalFactor/Gaomon1660PRO'
+license=('MIT' 'custom')
+depends=('qt6-base' 'qt6-wayland' 'libevdev' 'polkit')
+makedepends=('cmake' 'gcc' 'make' 'pkgconf')
+checkdepends=('dbus')
+source=('source.tar.gz')
+sha256sums=('SKIP')
+options=('!debug')
+if [[ ${GAOMON_BUILD_TYPE:-Release} == Debug ]]; then
+    options+=('!strip')
+fi
+
+build() {
+    cmake -S "$srcdir/source" -B "$srcdir/build-debug" \
+        -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build "$srcdir/build-debug" -j2
+
+    if [[ ${GAOMON_BUILD_TYPE:-Release} == Release ]]; then
+        cmake -S "$srcdir/source" -B "$srcdir/build-release" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=OFF
+        cmake --build "$srcdir/build-release" -j2
+    fi
+}
+
+check() {
+    ctest --test-dir "$srcdir/build-debug" --output-on-failure
+}
+
+package() {
+    local build_dir="$srcdir/build-debug"
+    if [[ ${GAOMON_BUILD_TYPE:-Release} == Release ]]; then
+        build_dir="$srcdir/build-release"
+    fi
+    DESTDIR="$pkgdir" cmake --install "$build_dir"
+}

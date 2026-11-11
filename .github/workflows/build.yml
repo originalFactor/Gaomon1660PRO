@@ -1,0 +1,64 @@
+name: Build and publish
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare source and version
+        shell: bash
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz --prefix=source/ HEAD > dist/source.tar.gz
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            version="$(printf '%s' "$version" | sed 's/[^[:alnum:]+._]/./g; s/^\.*//; s/\.*$//')"
+            [[ -n "$version" ]] || { echo 'Tag cannot be converted to a package version' >&2; exit 1; }
+            echo "GAOMON_PKGVER=$version" >> "$GITHUB_ENV"
+            echo 'GAOMON_BUILD_TYPE=Release' >> "$GITHUB_ENV"
+          else
+            echo "GAOMON_PKGVER=0.1.0.r${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+            echo 'GAOMON_BUILD_TYPE=Debug' >> "$GITHUB_ENV"
+          fi
+      - name: Build and test in Arch Linux
+        run: |
+          docker run --rm \
+            -e GAOMON_PKGVER -e GAOMON_BUILD_TYPE \
+            -e OUTPUT_UID="$(id -u)" -e OUTPUT_GID="$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" -v "$GITHUB_WORKSPACE/dist:/output" \
+            archlinux:base bash /workspace/.github/scripts/build-arch.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gaomon-linux-x86_64-${{ github.sha }}
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gaomon-linux-x86_64-${{ github.sha }}
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.pkg.tar.zst
+            dist/*-linux-x86_64.tar.gz

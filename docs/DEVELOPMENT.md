@@ -2,7 +2,17 @@
 
 ## 安装
 
-目前仓库提供源码构建。以下步骤适用于已进入项目目录的 CachyOS / Arch Linux 用户；其他发行版需要自行安装对应依赖。
+GitHub Releases 提供 Arch Linux x86_64 的 pacman 包和二进制压缩包，也可以从源码构建。
+
+在 Arch Linux 或 CachyOS 上，下载 Release 中的 `.pkg.tar.zst`，然后运行：
+
+```sh
+sudo pacman -U ./gaomon-manage-panel-*.pkg.tar.zst
+```
+
+二进制压缩包包含 `usr/bin` 下的两个程序及 `usr/share` 下的桌面资源，并非静态链接；需要兼容的 x86_64 Arch Linux 环境以及 Qt 6、libevdev、polkit 和 Qt Wayland 运行时。可将压缩包解压到临时目录后直接运行 `usr/bin/gaomon-manage-panel`，或优先使用 pacman 包安装以便管理桌面资源和依赖。
+
+以下源码构建步骤适用于已进入项目目录的 CachyOS / Arch Linux 用户；其他发行版需要自行安装对应依赖。
 
 1. 安装构建工具和依赖：
 
@@ -20,7 +30,7 @@
 
 安装后可从应用菜单启动，或运行 `gaomon-manage-panel`。如果命令不在桌面会话的搜索路径中，可运行 `/usr/local/bin/gaomon-manage-panel`。
 
-此源码安装方式不会被 pacman 追踪。如果已经通过 pacman 安装本项目，请继续使用该包的更新方式，避免同时安装两份。仓库目前未提供可直接下载的安装包或打包脚本。
+此源码安装方式不会被 pacman 追踪。如果已经通过 pacman 安装本项目，请继续使用该包的更新方式，避免同时安装两份。
 
 ### 源码安装后的卸载
 
@@ -45,6 +55,8 @@ ctest --test-dir build --output-on-failure
 也可以不安装，直接运行 `./build/gaomon-manage-panel`。`./build/gaomon-manage-panel --diagnose` 只读取并输出 Qt 平台、设备和当前映射，不会应用设置。
 
 测试覆盖区域拖动与换算、压感曲线与虚拟笔同步、按键匹配、动作输出和设置保存。图形测试使用 offscreen 平台，压感同步测试使用隔离的模拟 D-Bus 会话；这些检查不能替代真实数位笔及目标应用中的交互测试。
+
+GitHub Actions 在分支推送和 Pull Request 时构建 Debug 版本、运行测试并上传二进制压缩包及 pacman 包。推送标签（例如 `v0.1.0`）时，工作流先运行 Debug 测试，再构建 Release 版本，将两种产物上传到对应的 GitHub Release。标签转换为 pacman 版本时会移除开头的 `v`，并将不支持的字符替换为点；建议使用递增的版本标签。构建使用当前 Arch Linux 环境，产物依赖目标系统中兼容的动态库。工作流打包的第三方图标的许可情况见下方说明。
 
 ## 实现概览
 
