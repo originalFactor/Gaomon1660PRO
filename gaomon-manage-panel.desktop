@@ -1,0 +1,10 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Type=Application
+Name=Gaomon Manage Panel
+Name[zh_CN]=高漫数位板管理面板
+Comment=Configure a graphics tablet in KDE Plasma
+Exec=gaomon-manage-panel
+Icon=gaomon-manage-panel
+Categories=Settings;HardwareSettings;Qt;
+Terminal=false
