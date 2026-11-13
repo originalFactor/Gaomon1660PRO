@@ -1,0 +1,3 @@
+#pragma once
+#define GAOMON_INSTALLED_HELPER "@CMAKE_INSTALL_FULL_BINDIR@/gaomon-shortcut-helper"
+#define GAOMON_INSTALLED_PERMISSION_SETUP "@CMAKE_INSTALL_FULL_BINDIR@/gaomon-permission-setup"

@@ -1,4 +1,4 @@
-#include "../pen-buttons.h"
+#include "pen-buttons.h"
 #include <cassert>
 int main() {
     PenButtons pen;

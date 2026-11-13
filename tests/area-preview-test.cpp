@@ -1,5 +1,5 @@
-#include "../area-preview.h"
-#include "../shortcuts.h"
+#include "area-preview.h"
+#include "shortcuts.h"
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -93,6 +93,14 @@ private slots:
         QVERIFY(table);
         QCOMPARE(table->item(0, 0)->text(), QStringLiteral("笔侧键 1（靠近笔尖）"));
         QCOMPARE(table->item(1, 0)->text(), QStringLiteral("笔侧键 2"));
+        for (int n = 0; n < 6; n++) {
+            QCOMPARE(table->item(2 + n * 2, 0)->text(),
+                     QStringLiteral("左列侧键 %1").arg(n + 1));
+            QCOMPARE(table->item(3 + n * 2, 0)->text(),
+                     QStringLiteral("右列侧键 %1").arg(n + 1));
+        }
+        QCOMPARE(table->item(14, 0)->text(), QStringLiteral("软键 1"));
+        QCOMPARE(table->item(29, 0)->text(), QStringLiteral("软键 16"));
         auto *mode = qobject_cast<QComboBox *>(table->cellWidget(0, 1));
         QVERIFY(mode);
         QCOMPARE(mode->count(), 6);
@@ -118,6 +126,53 @@ private slots:
         QVERIFY(!table->isRowHidden(14));
         QVERIFY(!table->isRowHidden(29));
     }
+    void shortcutPreviewBindings() {
+        QSettings cfg(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"));
+        cfg.clear();
+        cfg.setValue(QStringLiteral("shortcut/0"), QStringLiteral("Ctrl+Z"));
+        cfg.sync();
+        Shortcuts dialog([] {});
+        dialog.resize(960, 720);
+        dialog.setSoftVisible(true);
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        auto *tabs = dialog.findChild<QTabWidget *>();
+        QCOMPARE(tabs->currentIndex(), 0);
+        for (int i = 0; i < 30; i++) {
+            auto *key = dialog.findChild<QPushButton *>(QStringLiteral("shortcutKey%1").arg(i));
+            QVERIFY(key);
+            QVERIFY(key->isVisible());
+            QTest::mouseClick(key, Qt::LeftButton);
+            auto *popup = dialog.findChild<QFrame *>(QStringLiteral("bindingPopup"));
+            QVERIFY(popup && popup->isVisible());
+            QVERIFY(!popup->findChild<QLabel *>(QStringLiteral("defaultBinding"))->text().isEmpty());
+            auto *configured = popup->findChild<QLabel *>(QStringLiteral("configuredBinding"));
+            if (i == 0) {
+                QCOMPARE(popup->findChild<QLabel *>(QStringLiteral("defaultBinding"))->text(),
+                         QStringLiteral("默认快捷键：A"));
+                QVERIFY(configured->text().contains(QStringLiteral("Ctrl+Z")));
+                if (!qEnvironmentVariableIsEmpty("GAOMON_SHORTCUT_SCREENSHOT")) {
+                    QPixmap capture = dialog.grab();
+                    QPainter painter(&capture);
+                    painter.drawPixmap(dialog.mapFromGlobal(popup->pos()), popup->grab());
+                    painter.end();
+                    capture.save(qEnvironmentVariable("GAOMON_SHORTCUT_SCREENSHOT"));
+                }
+                popup->findChild<QPushButton *>()->click();
+                QCOMPARE(tabs->currentIndex(), 1);
+                QCOMPARE(dialog.findChild<QTableWidget *>()->currentRow(), 2);
+                tabs->setCurrentIndex(0);
+            }
+            popup->hide();
+        }
+        dialog.setSoftVisible(false);
+        for (int i = 12; i < 28; i++)
+            QVERIFY(!dialog.findChild<QPushButton *>(QStringLiteral("shortcutKey%1").arg(i))->isVisible());
+        QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("shortcutKey28"))->isVisible());
+        dialog.setSoftVisible(true);
+        QVERIFY(dialog.findChild<QPushButton *>(QStringLiteral("shortcutKey12"))->isVisible());
+        cfg.clear();
+    }
     void actionMigrationAndPersistence() {
         QSettings cfg(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"));
         cfg.clear();
@@ -137,10 +192,10 @@ private slots:
         auto *pen = qobject_cast<QComboBox *>(table->cellWidget(0, 1));
         QVERIFY(pen);
         QCOMPARE(pen->currentData().toInt(), 3);
-        auto *other = qobject_cast<QComboBox *>(table->cellWidget(3, 1));
+        auto *other = qobject_cast<QComboBox *>(table->cellWidget(4, 1));
         QVERIFY(other);
         other->setCurrentIndex(other->findData(2));
-        auto *output = qobject_cast<QStackedWidget *>(table->cellWidget(3, 2));
+        auto *output = qobject_cast<QStackedWidget *>(table->cellWidget(4, 2));
         QVERIFY(output);
         QCOMPARE(output->currentIndex(), 2);
         auto *button = qobject_cast<QToolButton *>(output->currentWidget());
@@ -161,7 +216,7 @@ private slots:
         QCOMPARE(cfg.value(QStringLiteral("action/28")).toInt(), 3);
         Shortcuts reopened([] {});
         auto *table2 = reopened.findChild<QTableWidget *>();
-        QCOMPARE(qobject_cast<QComboBox *>(table2->cellWidget(3, 1))->currentData().toInt(), 2);
+        QCOMPARE(qobject_cast<QComboBox *>(table2->cellWidget(4, 1))->currentData().toInt(), 2);
         auto *hardOutput = qobject_cast<QStackedWidget *>(table2->cellWidget(2, 2));
         QVERIFY(hardOutput);
         auto *hardAction = qobject_cast<QComboBox *>(table2->cellWidget(2, 1));

@@ -1,4 +1,4 @@
-#include "../keyboard-matcher.h"
+#include "keyboard-matcher.h"
 #include <cassert>
 input_event event(int code, int value) {
     input_event e{};

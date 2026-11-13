@@ -1,5 +1,7 @@
 #pragma once
 #include "soft-area.h"
+#include "startup-settings.h"
+#include "shortcut-preview.h"
 #include <QDialog>
 #include <QComboBox>
 #include <QStackedWidget>
@@ -18,11 +20,17 @@
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QTabWidget>
+#include <QScreen>
+#include <QShortcut>
 #include <QCoreApplication>
 #include <linux/input-event-codes.h>
 #include <functional>
 
 class Shortcuts : public QDialog {
+    ShortcutPreview *preview = nullptr;
+    QTabWidget *tabs = new QTabWidget;
+    QFrame *bindingPopup = nullptr;
     QTableWidget *table = new QTableWidget(30, 3);
     QProcess *helper = new QProcess(this);
     QLabel *status = new QLabel;
@@ -38,6 +46,71 @@ class Shortcuts : public QDialog {
     std::function<void()> readyCallback;
     QByteArray pending;
     bool appliedSoft = false;
+    bool enableRequested = false;
+    // 板侧键按编号把左右两列排到相邻两行，其余按键保持原有顺序。
+    static int tableRow(int i) {
+        if (i < 12)
+            return 2 + (i % 6) * 2 + i / 6;
+        return i < 28 ? i + 2 : i - 28;
+    }
+    QString keyLabel(int i) const {
+        return table->item(tableRow(i), 0)->text();
+    }
+    QString defaultBinding(int i) const {
+        return qobject_cast<QLabel *>(outputs[i]->widget(0))->text();
+    }
+    QString configuredBinding(int i) const {
+        const int mode = actions[i]->currentData().toInt();
+        if (mode == 0)
+            return QStringLiteral("默认 · ") + defaultBinding(i);
+        if (mode == 1)
+            return edits[i]->keySequence().isEmpty()
+                       ? QStringLiteral("键盘快捷键（尚未设置）")
+                       : edits[i]->keySequence().toString(QKeySequence::NativeText);
+        if (mode == 5)
+            return QStringLiteral("禁用（不发送）");
+        return (mouseModMask(i) ? mouseMods[i]->text() + QStringLiteral(" + ") : QString())
+               + actions[i]->currentText();
+    }
+    void showBinding(int i, QWidget *anchor) {
+        if (bindingPopup)
+            delete bindingPopup;
+        bindingPopup = new QFrame(this, Qt::Popup);
+        bindingPopup->setObjectName(QStringLiteral("bindingPopup"));
+        bindingPopup->setFrameShape(QFrame::StyledPanel);
+        auto *escape = new QShortcut(QKeySequence(Qt::Key_Escape), bindingPopup);
+        connect(escape, &QShortcut::activated, bindingPopup, &QWidget::hide);
+        auto *layout = new QVBoxLayout(bindingPopup);
+        auto *title = new QLabel(keyLabel(i));
+        auto font = title->font();
+        font.setBold(true);
+        title->setFont(font);
+        layout->addWidget(title);
+        auto *defaults = new QLabel(QStringLiteral("默认快捷键：%1").arg(defaultBinding(i)));
+        defaults->setObjectName(QStringLiteral("defaultBinding"));
+        layout->addWidget(defaults);
+        auto *configured = new QLabel(QStringLiteral("当前配置：%1").arg(configuredBinding(i)));
+        configured->setObjectName(QStringLiteral("configuredBinding"));
+        layout->addWidget(configured);
+        layout->addWidget(new QLabel(QStringLiteral("修改后点击“保存绑定”生效。")));
+        auto *edit = new QPushButton(QStringLiteral("配置此按键…"));
+        layout->addWidget(edit);
+        connect(edit, &QPushButton::clicked, this, [this, i] {
+            bindingPopup->hide();
+            tabs->setCurrentWidget(table);
+            const int row = tableRow(i);
+            table->selectRow(row);
+            table->scrollToItem(table->item(row, 0));
+            actions[i]->setFocus();
+        });
+        bindingPopup->adjustSize();
+        QPoint position = anchor->mapToGlobal(QPoint(anchor->width() + 6, 0));
+        const QRect available = anchor->screen()->availableGeometry();
+        position.setX(qMax(available.left(), qMin(position.x(), available.right() - bindingPopup->width() + 1)));
+        position.setY(qMax(available.top(), qMin(position.y(), available.bottom() - bindingPopup->height() + 1)));
+        bindingPopup->move(position);
+        bindingPopup->show();
+    }
     static int linuxKey(int key) {
         static const int letters[] = {KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I,
                                       KEY_J, KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R,
@@ -137,6 +210,8 @@ class Shortcuts : public QDialog {
                 names << labels[m];
         mouseMods[i]->setText(names.isEmpty() ? QStringLiteral("修饰键：无")
                                               : names.join(QStringLiteral(" + ")));
+        if (preview)
+            preview->setBindingDescription(i, keyLabel(i), configuredBinding(i));
     }
     bool saveAndSend(bool persist = true) {
         QSettings cfg(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"));
@@ -158,7 +233,7 @@ class Shortcuts : public QDialog {
             QJsonObject b;
             if (modes[i] == 1) {
                 if (sequences[i].isEmpty() || !linuxKey(int(sequences[i][0].key()))) {
-                    errors << table->item(i < 28 ? i + 2 : i - 28, 0)->text();
+                    errors << table->item(tableRow(i), 0)->text();
                     continue;
                 }
                 const auto combo = sequences[i][0];
@@ -184,7 +259,7 @@ class Shortcuts : public QDialog {
             } else if (modes[i] == 5)
                 b.insert(QStringLiteral("kind"), QStringLiteral("disabled"));
             else {
-                errors << table->item(i < 28 ? i + 2 : i - 28, 0)->text();
+                errors << table->item(tableRow(i), 0)->text();
                 continue;
             }
             b.insert(QStringLiteral("modifiers"), mods);
@@ -240,7 +315,9 @@ class Shortcuts : public QDialog {
             int n = pending.indexOf('\n');
             QByteArray line = pending.left(n);
             pending.remove(0, n + 1);
-            if (line == "ready") {
+            if (line == "ready" && enableRequested) {
+                QSettings(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"))
+                    .setValue(QStringLiteral("enabled"), true);
                 toggle->setText(QStringLiteral("停用快捷键"));
                 saveAndSend(false);
                 readyCallback();
@@ -252,11 +329,12 @@ public:
     explicit Shortcuts(std::function<void()> onReady, QWidget *parent = nullptr)
         : QDialog(parent), readyCallback(std::move(onReady)) {
         setWindowTitle(QStringLiteral("1060PRO 快捷键"));
-        resize(720, 680);
+        resize(960, 720);
         auto *layout = new QVBoxLayout(this);
         auto *info =
-            new QLabel(QStringLiteral("启用时需要授权访问本数位板。笔侧键默认保留原行为；板侧键按左"
-                                      "、右两列分别从上到下排列，软键从左到右排列。"));
+            new QLabel(QStringLiteral("点击预览中的按键，查看默认快捷键和当前配置。板侧键按左、右两列"
+                                      "从上到下编号，配置表中同编号的左右键相邻排列；笔侧键 1 靠近笔尖。"
+                                      "启用时需要授权访问本数位板。"));
         info->setWordWrap(true);
         layout->addWidget(info);
         table->setHorizontalHeaderLabels(
@@ -267,7 +345,7 @@ public:
         table->setSelectionMode(QAbstractItemView::SingleSelection);
         QSettings cfg(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"));
         for (int i = 0; i < 30; i++) {
-            const int row = i < 28 ? i + 2 : i - 28;
+            const int row = tableRow(i);
             QString label = i < 12 ? QStringLiteral("%1列侧键 %2")
                                          .arg(i < 6 ? QStringLiteral("左") : QStringLiteral("右"))
                                          .arg(i % 6 + 1)
@@ -311,6 +389,8 @@ public:
             edits[i]->setKeySequence(
                 QKeySequence::fromString(cfg.value(QStringLiteral("shortcut/%1").arg(i)).toString(),
                                          QKeySequence::PortableText));
+            connect(edits[i], &QKeySequenceEdit::keySequenceChanged, this,
+                    [this, i] { if (preview) preview->setBindingDescription(i, keyLabel(i), configuredBinding(i)); });
             outputs[i]->addWidget(edits[i]);
             mouseMods[i] = new QToolButton;
             mouseMods[i]->setPopupMode(QToolButton::InstantPopup);
@@ -335,7 +415,12 @@ public:
                     [this, i] { refreshAction(i); });
             refreshAction(i);
         }
-        layout->addWidget(table);
+        preview = new ShortcutPreview([this](int i, QWidget *anchor) { showBinding(i, anchor); });
+        tabs->addTab(preview, QStringLiteral("按键预览"));
+        tabs->addTab(table, QStringLiteral("按键配置"));
+        for (int i = 0; i < 30; i++)
+            preview->setBindingDescription(i, keyLabel(i), configuredBinding(i));
+        layout->addWidget(tabs);
         auto *buttons = new QHBoxLayout;
         auto *reset = new QPushButton(QStringLiteral("重置所有按键"));
         auto *save = new QPushButton(QStringLiteral("保存绑定"));
@@ -347,13 +432,12 @@ public:
         layout->addWidget(status);
         connect(toggle, &QPushButton::clicked, this, [this] {
             if (helper->state() != QProcess::NotRunning) {
-                helper->closeWriteChannel();
+                QSettings(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"))
+                    .setValue(QStringLiteral("enabled"), false);
+                stop();
                 return;
             }
-            pending.clear();
-            helper->start(QStringLiteral("pkexec"), {QCoreApplication::applicationDirPath() +
-                                                     QStringLiteral("/gaomon-shortcut-helper")});
-            status->setText(QStringLiteral("等待授权并启动…"));
+            start();
         });
         connect(save, &QPushButton::clicked, this, [this] { saveAndSend(); });
         connect(reset, &QPushButton::clicked, this, [this] {
@@ -381,9 +465,20 @@ public:
                                       : QStringLiteral("快捷键已停止：%1")
                                             .arg(err.isEmpty() ? QString::number(code) : err));
         });
-        status->setText(QStringLiteral("设置在保存后保留；快捷键仅在面板运行并启用时生效。"));
+        status->setText(QStringLiteral("设置在保存后保留；启用后，下次打开面板会自动启动快捷键。可在主面板设置登录自启动和免密授权。"));
+    }
+    void start() {
+        if (helper->state() != QProcess::NotRunning)
+            return;
+        enableRequested = true;
+        pending.clear();
+        helper->start(QStringLiteral("pkexec"), {StartupSettings::helperPath()});
+        status->setText(QStringLiteral("等待授权并启动…"));
     }
     void setSoftVisible(bool enabled) {
+        if (bindingPopup)
+            bindingPopup->hide();
+        preview->setSoftVisible(enabled);
         for (int i = 14; i < 30; i++)
             table->setRowHidden(i, !enabled);
     }
@@ -396,6 +491,7 @@ public:
         return helper->state() == QProcess::Running;
     }
     void stop() {
+        enableRequested = false;
         if (helper->state() != QProcess::NotRunning)
             helper->closeWriteChannel();
     }

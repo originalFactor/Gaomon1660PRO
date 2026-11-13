@@ -1,4 +1,4 @@
-#include "../pressure-dialog.h"
+#include "pressure-dialog.h"
 #include <QEasingCurve>
 #include <QSignalSpy>
 #include <QtTest>

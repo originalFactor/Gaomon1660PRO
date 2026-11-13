@@ -68,6 +68,75 @@ class Window : public QWidget {
     Shortcuts *shortcutDialog = nullptr;
     bool appliedSoft = false;
     bool minimizeToTray = false;
+    void ensureShortcuts() {
+        if (!shortcutDialog) {
+            shortcutDialog = new Shortcuts([this] { syncVirtualLater(); }, this);
+            shortcutDialog->setAppliedSoft(appliedSoft);
+        }
+        shortcutDialog->setSoftVisible(reserveSoft->isChecked());
+    }
+    QGroupBox *startupBox() {
+        auto *box = new QGroupBox(QStringLiteral("启动设置"));
+        auto *layout = new QVBoxLayout(box);
+        auto *autostart = new QCheckBox(QStringLiteral("登录后自动启动面板"));
+        autostart->setChecked(StartupSettings::autostartEnabled());
+        autostart->setToolTip(QStringLiteral("登录桌面后打开面板；快捷键会按上次的启用状态恢复。"));
+        layout->addWidget(autostart);
+        connect(autostart, &QCheckBox::toggled, this, [this, autostart](bool enabled) {
+            QString error;
+            if (!StartupSettings::setAutostart(enabled, QCoreApplication::applicationFilePath(), error)) {
+                QSignalBlocker block(autostart);
+                autostart->setChecked(!enabled);
+                status->setText(error);
+                return;
+            }
+            status->setText(enabled ? QStringLiteral("已启用登录自启动。请保留当前程序的安装路径。")
+                                    : QStringLiteral("已关闭登录自启动。"));
+        });
+        auto *passwordless = new QCheckBox(QStringLiteral("免密启动快捷键（仅当前本地活动用户）"));
+        passwordless->setChecked(StartupSettings::passwordlessEnabled());
+        passwordless->setToolTip(QStringLiteral("启用或撤销时需要管理员授权；请先将程序安装到系统目录。"));
+        layout->addWidget(passwordless);
+        connect(passwordless, &QCheckBox::toggled, this, [this, passwordless](bool enabled) {
+            const QString setup = QString::fromUtf8(GAOMON_INSTALLED_PERMISSION_SETUP);
+            if (!QFileInfo(setup).isExecutable()) {
+                QSignalBlocker block(passwordless);
+                passwordless->setChecked(!enabled);
+                status->setText(QStringLiteral("请先安装程序，再设置免密启动。未找到：%1").arg(setup));
+                return;
+            }
+            passwordless->setEnabled(false);
+            auto *process = new QProcess(this);
+            auto complete = [this, passwordless, process, enabled](bool success, const QString &error) {
+                passwordless->setEnabled(true);
+                if (success) {
+                    QSettings(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"))
+                        .setValue(QStringLiteral("passwordless"), enabled);
+                    status->setText(enabled ? QStringLiteral("已允许当前用户免密启动快捷键。下次启用时生效。")
+                                            : QStringLiteral("已撤销免密启动；下次启用快捷键需要系统授权。"));
+                } else {
+                    QSignalBlocker block(passwordless);
+                    passwordless->setChecked(!enabled);
+                    status->setText(QStringLiteral("免密设置未更改：%1").arg(error));
+                }
+                process->deleteLater();
+            };
+            connect(process, &QProcess::errorOccurred, this,
+                    [process, complete](QProcess::ProcessError error) {
+                if (error == QProcess::FailedToStart)
+                    complete(false, process->errorString());
+            });
+            connect(process, &QProcess::finished, this,
+                    [process, complete](int code, QProcess::ExitStatus exitStatus) {
+                complete(code == 0 && exitStatus == QProcess::NormalExit,
+                         QString::fromLocal8Bit(process->readAllStandardError()).trimmed());
+            });
+            status->setText(QStringLiteral("等待管理员授权以更新当前用户的免密规则…"));
+            process->start(QStringLiteral("pkexec"), {setup, enabled ? QStringLiteral("--enable")
+                                                                     : QStringLiteral("--disable")});
+        });
+        return box;
+    }
     QVariant get(const QString &key, QString *error = nullptr) const {
         QDBusInterface d(service, path, props, QDBusConnection::sessionBus());
         QDBusReply<QDBusVariant> r = d.call(QStringLiteral("Get"), iface, key);
@@ -451,6 +520,13 @@ public:
         out << "status=" << status->text() << "\n";
         return path.isEmpty() ? 1 : 0;
     }
+    void restoreShortcuts() {
+        if (QSettings(QStringLiteral("GaomonManagePanel"), QStringLiteral("Shortcuts"))
+                .value(QStringLiteral("enabled"), false).toBool()) {
+            ensureShortcuts();
+            shortcutDialog->start();
+        }
+    }
     Window() {
         setWindowTitle(QStringLiteral("数位板管理面板"));
         resize(860, 800);
@@ -489,6 +565,7 @@ public:
         auto *clear = new QPushButton(QStringLiteral("清除"));
         tl->addWidget(clear, 0, Qt::AlignRight);
         root->addWidget(testBox, 1);
+        root->addWidget(startupBox());
         status->setWordWrap(true);
         root->addWidget(status);
         auto *actions = new QHBoxLayout;
@@ -504,11 +581,7 @@ public:
         root->addLayout(actions);
         connect(pressure, &QPushButton::clicked, this, [this] { openPressure(); });
         connect(shortcuts, &QPushButton::clicked, this, [this] {
-            if (!shortcutDialog) {
-                shortcutDialog = new Shortcuts([this] { syncVirtualLater(); }, this);
-                shortcutDialog->setAppliedSoft(appliedSoft);
-            }
-            shortcutDialog->setSoftVisible(reserveSoft->isChecked());
+            ensureShortcuts();
             shortcutDialog->show();
             shortcutDialog->raise();
             shortcutDialog->activateWindow();
@@ -566,5 +639,6 @@ int main(int argc, char **argv) {
         window.setMinimizeToTray(true);
     }
     window.show();
+    QTimer::singleShot(0, &window, [&window] { window.restoreShortcuts(); });
     return app.exec();
 }

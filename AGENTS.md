@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This C++17/Qt 6 application configures the GAOMON 1060PRO on KDE Plasma Wayland. `main.cpp` contains the main window and KWin integration; the root-level headers implement mapping, pressure controls, shortcuts, and input state. `shortcut-helper.cpp` handles tablet input and virtual devices. Tests live in `tests/`, diagnostic utilities in `tools/`, the desktop launcher at the root, and icons in `assets/`. User guidance is in `README.md`; installation and architecture details are in `docs/DEVELOPMENT.md`.
+This C++17/Qt 6 application configures the GAOMON 1060PRO on KDE Plasma Wayland. All C++ sources and headers live in `src/`: `src/main.cpp` contains the main window and KWin integration, the headers implement mapping, pressure controls, shortcuts, and input state, and `src/shortcut-helper.cpp` handles tablet input and virtual devices. Tests live in `tests/`, diagnostic utilities in `tools/`, the desktop launcher in `resources/`, and icons in `assets/`. User guidance is in `README.md`; installation and architecture details are in `docs/DEVELOPMENT.md`.
 
 ## Build, Test, and Development Commands
 

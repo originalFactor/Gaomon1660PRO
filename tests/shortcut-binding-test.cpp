@@ -1,4 +1,4 @@
-#include "../shortcut-binding.h"
+#include "shortcut-binding.h"
 #include <cassert>
 int main() {
     auto keyboard =
