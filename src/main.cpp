@@ -22,6 +22,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QTabletEvent>
@@ -531,18 +532,28 @@ public:
         setWindowTitle(QStringLiteral("数位板管理面板"));
         resize(860, 800);
         auto *root = new QVBoxLayout(this);
+        auto *scroll = new QScrollArea;
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        auto *content = new QWidget;
+        auto *body = new QVBoxLayout(content);
+        body->setContentsMargins(0, 0, 0, 0);
+        // Preserve child minimum sizes when the screen limits the window height.
+        body->setSizeConstraint(QLayout::SetMinAndMaxSize);
+        scroll->setWidget(content);
+        root->addWidget(scroll, 1);
         auto *top = new QHBoxLayout;
         top->addWidget(new QLabel(QStringLiteral("数位笔")));
         top->addWidget(devices, 1);
         auto *refresh = new QPushButton(QStringLiteral("刷新设备"));
         top->addWidget(refresh);
-        root->addLayout(top);
+        body->addLayout(top);
         auto *screenBox = new QGroupBox(QStringLiteral("屏幕映射"));
         auto *form = new QFormLayout(screenBox);
         form->addRow(QStringLiteral("显示器"), outputs);
         form->addRow(workspace);
         form->addRow(left);
-        root->addWidget(screenBox);
+        body->addWidget(screenBox);
         auto *areas = new QHBoxLayout;
         auto *inputBox = areaBox(QStringLiteral("数位板有效区域"), 0);
         reserveSoft->setToolTip(
@@ -558,14 +569,14 @@ public:
         });
         areas->addWidget(inputBox);
         areas->addWidget(areaBox(QStringLiteral("屏幕目标区域"), 4));
-        root->addLayout(areas);
+        body->addLayout(areas);
         auto *testBox = new QGroupBox(QStringLiteral("压感测试"));
         auto *tl = new QVBoxLayout(testBox);
         tl->addWidget(test);
         auto *clear = new QPushButton(QStringLiteral("清除"));
         tl->addWidget(clear, 0, Qt::AlignRight);
-        root->addWidget(testBox, 1);
-        root->addWidget(startupBox());
+        body->addWidget(testBox, 1);
+        body->addWidget(startupBox());
         status->setWordWrap(true);
         root->addWidget(status);
         auto *actions = new QHBoxLayout;
